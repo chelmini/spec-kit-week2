@@ -41,13 +41,8 @@ test.describe("User Story 2 - Get a new random quote", () => {
   });
 });
 
-async function cycleUntilText(page, targetText, maxClicks = 40) {
-  for (let i = 0; i < maxClicks; i += 1) {
-    const current = await page.locator("#quote-text").textContent();
-    if (current === targetText) return;
-    await page.getByRole("button", { name: "New quote" }).click();
-  }
-  throw new Error(`Could not cycle back to quote: ${targetText}`);
+function readFavoriteIds(page) {
+  return page.evaluate(() => JSON.parse(window.localStorage.getItem("qotd:favorites") || "[]"));
 }
 
 test.describe("User Story 3 - Favorite the current quote", () => {
@@ -62,16 +57,23 @@ test.describe("User Story 3 - Favorite the current quote", () => {
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
 
-    await page.reload();
-    await cycleUntilText(page, favoritedQuoteText);
-    await expect(page.locator("#favorite-toggle")).toHaveAttribute("aria-pressed", "true");
+    const idsAfterAdd = await readFavoriteIds(page);
+    expect(idsAfterAdd).toHaveLength(1);
 
-    await page.locator("#favorite-toggle").click();
-    await expect(page.locator("#favorite-toggle")).toHaveAttribute("aria-pressed", "false");
+    // Reload re-rolls the randomly-selected display, so persistence is checked
+    // directly against storage and the favorites view rather than by cycling
+    // "New quote" hoping to land back on the favorited quote (that was flaky).
+    await page.reload();
+    await expect.poll(() => readFavoriteIds(page)).toEqual(idsAfterAdd);
+
+    await page.getByRole("button", { name: "View favorites" }).click();
+    await expect(page.locator(".favorites-list")).toContainText(favoritedQuoteText);
+    await page.getByRole("button", { name: "Remove", exact: false }).first().click();
+
+    expect(await readFavoriteIds(page)).toHaveLength(0);
 
     await page.reload();
-    await cycleUntilText(page, favoritedQuoteText);
-    await expect(page.locator("#favorite-toggle")).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(() => readFavoriteIds(page)).toHaveLength(0);
   });
 });
 
