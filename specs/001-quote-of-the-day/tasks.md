@@ -237,3 +237,9 @@ With multiple developers:
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
 - Unlike a typical multi-service feature, US2–US4 here are not fully file-isolated from US1 because all DOM wiring lives in one `app.js` — dependencies above capture that explicitly rather than claiming false independence
+
+---
+
+## Phase 8: Convergence
+
+- [ ] T037 Fix the flaky reload-persistence check in `tests/e2e/quote-of-the-day.spec.js` (`cycleUntilText`, used at lines ~66 and ~73): after `page.reload()`, re-initialization calls `pickNext(quotes, null)`, which re-rolls uniformly across all 25 quotes, so the bounded 40-click retry loop has a measurable (~20-35%, confirmed failing in local runs) chance of exhausting its budget before landing back on `favoritedQuoteText`; replace with a deterministic check (e.g., assert against the persisted `qotd:favorites` localStorage value directly, or locate the favorited quote via the favorites view instead of re-rolling the main display) so the US3/FR-008/SC-003 persistence scenario is verified reliably rather than probabilistically (partial)
