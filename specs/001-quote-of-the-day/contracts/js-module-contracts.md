@@ -1,17 +1,30 @@
-# Contracts: JS Module Interfaces
+# Contracts: JS Script Interfaces
 
-This app has no external/network API. Its "contracts" are the internal module boundaries that tests (unit, integration, e2e) and `app.js` rely on. Each function signature below is a contract: implementation MAY change internally, but inputs/outputs/error behavior MUST NOT, without updating this file and the dependent tests.
+This app has no external/network API. Its "contracts" are the internal boundaries between script files that tests (unit, integration, e2e) and `app.js` rely on. Each function signature below is a contract: implementation MAY change internally, but inputs/outputs/error behavior MUST NOT, without updating this file and the dependent tests.
+
+No shipped script uses `import`/`export` or `<script type="module">` — ES modules are blocked by CORS when `index.html` is opened via `file://`, which the spec requires to work. Instead, every script registers its public API on a shared namespace, following this dual-registration shape so the same file is loadable both as a browser `<script src>` and as a Vitest/Node module:
+
+```js
+(function (global) {
+  // ...implementation...
+  var api = { /* public functions */ };
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = api;       // Vitest/Node (unit tests)
+  } else {
+    global.QOTD = global.QOTD || {};
+    global.QOTD.<scriptName> = api;   // browser, via classic <script src>
+  }
+})(typeof window !== "undefined" ? window : globalThis);
+```
 
 ## `js/quotes.js`
 
 ```js
-export const quotes = [
-  { id: "q01", text: "...", author: "..." },
-  // ...at least 20 entries (FR-012)
-];
+// registers: window.QOTD.quotes = [ { id, text, author }, ... ]  (≥20 entries, FR-012)
 ```
 
-- MUST export a frozen or otherwise non-mutated array named `quotes`.
+- MUST register a frozen or otherwise non-mutated array as `QOTD.quotes` (browser) / module export (tests).
 - MUST contain ≥20 entries; every entry has non-empty `id`, `text`, `author`; all `id`s unique (data-model.md validation rules).
 
 ## `js/quoteSelector.js`
@@ -22,7 +35,8 @@ export const quotes = [
  * @param {string|null} previousId - id to avoid repeating, or null if none yet
  * @returns {{id: string, text: string, author: string}} the chosen quote
  */
-export function pickNext(quotes, previousId) { /* ... */ }
+// registers as QOTD.quoteSelector.pickNext(quotes, previousId)
+function pickNext(quotes, previousId) { /* ... */ }
 ```
 
 - MUST throw if `quotes` is empty (precondition — the bundled list is never empty; callers must not call this with an empty array).
@@ -34,16 +48,20 @@ export function pickNext(quotes, previousId) { /* ... */ }
 
 ```js
 /** @returns {string[]} current favorited quote ids, best-effort (empty array if storage unavailable/empty) */
-export function getFavorites() { /* ... */ }
+// registers as QOTD.favoritesStore.getFavorites()
+function getFavorites() { /* ... */ }
 
 /** @param {string} id @returns {boolean} */
-export function isFavorite(id) { /* ... */ }
+// registers as QOTD.favoritesStore.isFavorite(id)
+function isFavorite(id) { /* ... */ }
 
 /** @param {string} id - idempotent: no-op if already favorited */
-export function addFavorite(id) { /* ... */ }
+// registers as QOTD.favoritesStore.addFavorite(id)
+function addFavorite(id) { /* ... */ }
 
 /** @param {string} id - idempotent: no-op if not currently favorited */
-export function removeFavorite(id) { /* ... */ }
+// registers as QOTD.favoritesStore.removeFavorite(id)
+function removeFavorite(id) { /* ... */ }
 ```
 
 - MUST persist to `localStorage` under key `qotd:favorites` as a JSON array of ids (data-model.md) whenever `localStorage` is available and writable.
@@ -52,7 +70,7 @@ export function removeFavorite(id) { /* ... */ }
 
 ## `js/app.js`
 
-Not a reusable library contract — this is the DOM wiring layer. Its observable contract (verified by integration/e2e tests, not by other modules importing it) is the rendered-DOM behavior:
+Not a reusable library contract — this is the DOM wiring layer, loaded last (after `quotes.js`, `quoteSelector.js`, `favoritesStore.js` have registered on `window.QOTD`) via its own plain `<script src="js/app.js">` tag. Its observable contract (verified by integration/e2e tests, not by other scripts importing it) is the rendered-DOM behavior:
 
 - On load: renders exactly one quote (text + author) from `quotes` via `pickNext(quotes, null)`, and reflects its favorite state via `isFavorite(quote.id)` (FR-001, FR-002, FR-007).
 - On "New quote" activation: re-renders using `pickNext(quotes, currentQuote.id)` (FR-003).
